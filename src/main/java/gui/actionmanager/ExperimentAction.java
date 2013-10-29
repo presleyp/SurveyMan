@@ -207,7 +207,8 @@ public class ExperimentAction implements ActionListener {
                     cachedSurveys.put(csv, survey);
                 }
                 HTML.spitHTMLToFile(HTML.getHTMLString(survey), survey);
-                Desktop.getDesktop().browse(new URI("file://"+ HTML.htmlFileName));
+                SurveyMan.LOGGER.info(String.format("Attempting to open file (%s)", HTML.htmlFileName));
+                Desktop.getDesktop().open(new File(HTML.htmlFileName));
             } catch (IOException io) {
                 Experiment.updateStatusLabel(String.format("IO Exception when opening file %s", HTML.htmlFileName));
                 SurveyMan.LOGGER.fatal(io);
@@ -215,8 +216,6 @@ public class ExperimentAction implements ActionListener {
                 Experiment.updateStatusLabel(se.getMessage());
                 cachedSurveys.remove(csv);
                 SurveyMan.LOGGER.warn(se);
-            } catch (URISyntaxException uri) {
-                SurveyMan.LOGGER.fatal(uri);
             }
         }
     }

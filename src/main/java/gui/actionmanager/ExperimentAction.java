@@ -8,14 +8,13 @@ import gui.GUIActions;
 import gui.SurveyMan;
 import gui.display.Display;
 import gui.display.Experiment;
-import qc.QC;
 import scala.Tuple2;
 import survey.Survey;
 import survey.SurveyException;
 import system.mturk.Runner;
 import system.mturk.*;
 import system.mturk.generators.HTML;
-import utils.Slurpie;
+import system.Slurpie;
 
 import javax.swing.*;
 import java.awt.*;
@@ -26,14 +25,31 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.text.ParseException;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class ExperimentAction implements ActionListener {
+
+
+    class FileListener implements ActionListener {
+        public ExperimentAction.BoxedString filename;
+        final private JFileChooser fc;
+
+        public FileListener(final JFileChooser fc, ExperimentAction.BoxedString filename) {
+            this.fc = fc;
+            this.filename = filename;
+        }
+
+        public void actionPerformed(ActionEvent actionEvent) {
+            if (actionEvent.getActionCommand().equals(JFileChooser.APPROVE_SELECTION))
+                try {
+                    filename.string = fc.getSelectedFile().getCanonicalPath();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+        }
+    }
 
     public class BoxedString {
         public String string;
@@ -70,7 +86,6 @@ public class ExperimentAction implements ActionListener {
                     openPreviewHTML(); break;
                 case DUMP_PARAMS:
                     try {
-                        Experiment.loadParameters();
                         saveParameters();
                     } catch (IOException io) {
                         Experiment.updateStatusLabel(String.format("Unable to write parameter file %s : %s"
@@ -142,7 +157,7 @@ public class ExperimentAction implements ActionListener {
         if (fc.showOpenDialog(Experiment.selectCSV)==JFileChooser.APPROVE_OPTION) {
             // check whether it's already added. if so, remove from map and set as selected
             for (int i = 0 ; i < Experiment.csvLabel.getItemCount(); i++)
-                if (((String) Experiment.csvLabel.getItemAt(i)).equals(filename.string)) {
+                if (Experiment.csvLabel.getItemAt(i).equals(filename.string)) {
                     Experiment.csvLabel.setSelectedItem(filename.string);
                     ExperimentAction.cachedSurveys.remove(filename.string);
                     return;
@@ -189,28 +204,38 @@ public class ExperimentAction implements ActionListener {
 
     public static void saveParameters() throws IOException {
         FileWriter writer = new FileWriter(MturkLibrary.PARAMS);
-        MturkLibrary.props.store(writer, "");
+        Properties props = new Properties();
+        props.store(writer, "");
         writer.close();
     }
 
     private void openPreviewHTML(){
         if (Experiment.csvLabel!=null) {
             String csv = (String) Experiment.csvLabel.getSelectedItem();
+            String htmlFileName = "NOT SET";
             try{
                 Survey survey;
+                Record record;
                 if (cachedSurveys.containsKey(csv)) {
-                    Experiment.loadParameters();
-                SurveyPoster.updateProperties();
-                survey = cachedSurveys.get(csv);
+                    survey = cachedSurveys.get(csv);
+                    if (ResponseManager.manager.containsKey(survey.sid))
+                        record = ResponseManager.getRecord(survey);
+                    else record = new Record(survey);
                 } else {
-                    survey = Experiment.makeSurvey();
+                    record = Experiment.makeSurvey();
+                    survey = record.survey;
                     cachedSurveys.put(csv, survey);
                 }
+                survey.randomize();
+                Experiment.loadParameters(record);
+                if (!ResponseManager.manager.containsKey(survey.sid))
+                    ResponseManager.manager.put(survey.sid, record);
                 HTML.spitHTMLToFile(HTML.getHTMLString(survey), survey);
-                SurveyMan.LOGGER.info(String.format("Attempting to open file (%s)", HTML.htmlFileName));
-                Desktop.getDesktop().open(new File(HTML.htmlFileName));
+                htmlFileName = record.getHtmlFileName();
+                SurveyMan.LOGGER.info(String.format("Attempting to open file (%s)", htmlFileName));
+                Desktop.getDesktop().open(new File(htmlFileName));
             } catch (IOException io) {
-                Experiment.updateStatusLabel(String.format("IO Exception when opening file %s", HTML.htmlFileName));
+                Experiment.updateStatusLabel(String.format("IO Exception when opening file %s", htmlFileName));
                 SurveyMan.LOGGER.fatal(io);
             } catch (SurveyException se) {
                 Experiment.updateStatusLabel(se.getMessage());
@@ -222,7 +247,7 @@ public class ExperimentAction implements ActionListener {
 
     private void openViewHIT() throws IOException {
         try {
-            Survey selectedSurvey = cachedSurveys.get((String) Experiment.csvLabel.getSelectedItem());
+            Survey selectedSurvey = cachedSurveys.get(Experiment.csvLabel.getSelectedItem());
             Record record = ResponseManager.getRecord(selectedSurvey);
             HIT hit = record.getLastHIT();
             String hitURL = SurveyPoster.makeHITURL(hit);
@@ -259,15 +284,20 @@ public class ExperimentAction implements ActionListener {
         }
     }
 
-    public Thread makeRunner(final Survey survey, final Runner.BoxedBool interrupt){
+    public Thread makeRunner(final Record record, final Runner.BoxedBool interrupt){
         return new Thread(){
+            @Override
             public void run() {
-                Tuple2<Thread, Runner.BoxedBool> threadData = new Tuple2(this, interrupt);
+                Tuple2 threadData = new Tuple2(this, interrupt);
+                Survey survey = record.survey;
                 ExperimentAction.addThisThread(survey, threadData);
                 while (!interrupt.getInterrupt()) {
                     try{
-                        Runner.run(survey, interrupt);
+                        Runner.run(record, interrupt);
                         System.out.println("finished survey.");
+                    } catch (ParseException pe) {
+                        SurveyMan.LOGGER.fatal(pe);
+                        System.exit(-1);
                     } catch (AccessKeyException ake) {
                         Experiment.updateStatusLabel(String.format("Access key issue : %s. Deleting access keys in your surveyman home folder. Please restart this program.", ake.getMessage()));
                         (new File(MturkLibrary.CONFIG)).delete();
@@ -285,12 +315,13 @@ public class ExperimentAction implements ActionListener {
                             interrupt.setInterrupt(true);
                         } else if (opt == JOptionPane.CANCEL_OPTION) {
                             Experiment.updateStatusLabel(String.format("Saving survey %s and stopping computation.", survey.sourceName));
-                            Runner.saveJob(survey);
+//                                Runner.saveJob(survey, MturkLibrary.JobStatus.INTERRUPTED);
                             interrupt.setInterrupt(true);
                         }
                     } catch (ServiceException mturkse) {
                         SurveyMan.LOGGER.warn(mturkse);
                         Experiment.updateStatusLabel(String.format("Could not send request:\r\n%s\r\nSee SurveyMan.log for more detail.", mturkse.getMessage()));
+                        mturkse.printStackTrace();
                     } catch (IOException io) {
                         SurveyMan.LOGGER.warn(io);
                         Experiment.updateStatusLabel(String.format("%s\r\nSee SurveyMan.log for more detail.", io.getMessage()));
@@ -357,13 +388,13 @@ public class ExperimentAction implements ActionListener {
                 } catch (SurveyException ex) {
                     SurveyMan.LOGGER.warn(ex);
                 }
-                if (QC.complete(record.responses, record.parameters))
+                if (record.qc.complete(record.responses, record.library.props))
                     Experiment.updateStatusLabel(String.format("Survey completed with %d responses. See %s for output."
                             , record.responses.size()
                             , record.outputFileName));
                 else Experiment.updateStatusLabel(String.format("Survey terminated prematurely with %d responses, %s shy of the objective. See %s for output."
                         , record.responses.size()
-                        , record.parameters.getProperty("numparticipants")
+                        , record.library.props.getProperty("numparticipants")
                         , record.outputFileName));
 
             }
@@ -373,33 +404,39 @@ public class ExperimentAction implements ActionListener {
     public void sendSurvey() {
 
         final Survey survey;
+        final Record record;
         final Thread runner, notifier, writer, getter;
-
-        Experiment.loadParameters();
 
         try{
             // if we've made this survey before, grab it
             if (Experiment.csvLabel!=null) {
                 String csv = (String) Experiment.csvLabel.getSelectedItem();
-                if (csv==null || csv.equals(""))
+                if (csv==null || csv.equals("")) {
                     survey = null;
-                else {
-                    if (cachedSurveys.containsKey(csv))
+                    record = null;
+                } else {
+                    if (cachedSurveys.containsKey(csv)) {
                         survey = cachedSurveys.get(csv);
-                    else {
-                        survey = Experiment.makeSurvey();
+                        record = ResponseManager.getRecord(survey);
+                    } else {
+                        record = Experiment.makeSurvey();
+                        survey = record.survey;
                         cachedSurveys.put(csv, survey);
+                        ResponseManager.manager.put(survey.sid, record);
                     }
                 }
-            } else survey=null;
+            } else {
+                survey=null; record=null;
+            }
 
             Runner.BoxedBool interrupt = new Runner.BoxedBool(false);
-            runner = makeRunner(survey, interrupt);
+            runner = makeRunner(record, interrupt);
             notifier = makeNotifier(runner, survey);
             getter = Runner.makeResponseGetter(survey, interrupt);
             writer = Runner.makeWriter(survey, interrupt);
 
             if (survey!=null) {
+                Experiment.loadParameters(record);
                 runner.start();
                 getter.start();
                 writer.start();
@@ -416,24 +453,5 @@ public class ExperimentAction implements ActionListener {
             SurveyMan.LOGGER.warn(mturkse.getMessage());
             Experiment.updateStatusLabel(String.format("Could not send request:\r\n%s\r\nSee SurveyMan.log for more detail.", mturkse.getMessage()));
         }
-    }
-}
-
-class FileListener implements ActionListener {
-    public ExperimentAction.BoxedString filename;
-    final private JFileChooser fc;
-
-    public FileListener(final JFileChooser fc, ExperimentAction.BoxedString filename) {
-        this.fc = fc;
-        this.filename = filename;
-    }
-
-    public void actionPerformed(ActionEvent actionEvent) {
-        if (actionEvent.getActionCommand().equals(JFileChooser.APPROVE_SELECTION))
-            try {
-                filename.string = fc.getSelectedFile().getCanonicalPath();
-            } catch (IOException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-            }
     }
 }

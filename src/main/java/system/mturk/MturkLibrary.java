@@ -1,10 +1,15 @@
 package system.mturk;
 
+import scala.Tuple2;
+import survey.Survey;
+import survey.SurveyException;
 import system.Library;
-import java.io.IOException;
+
+import java.io.*;
 import java.text.FieldPosition;
 import java.text.NumberFormat;
 import java.text.ParsePosition;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 
@@ -51,8 +56,8 @@ public class MturkLibrary extends Library {
     private static final String MTURK_SANDBOX_EXTERNAL_HIT = "https://workersandbox.mturk.com/mturk/externalSubmit";
     private static final String MTURK_PROD_EXTERNAL_HIT = "https://www.mturk.com/mturk/externalSubmit";
 
-    public static String MTURK_URL;
-    public static String EXTERNAL_HIT;
+    public String MTURK_URL;
+    public String EXTERNAL_HIT;
     public static final int mintime = 30;
     public static final int maxtime = 31536000;
     public static final NumberFormat duration_formatter = new MturkNumberFormat(mintime, maxtime);
@@ -60,27 +65,15 @@ public class MturkLibrary extends Library {
 
     // editable stuff gets copied
 
-    public static void updateURL(){
-        if (Boolean.parseBoolean(props.getProperty("sandbox"))) {
+    public MturkLibrary(){
+        super();
+        boolean sandbox = Boolean.parseBoolean(this.props.getProperty("sandbox"));
+        if (sandbox) {
             MTURK_URL = MTURK_SANDBOX_URL;
             EXTERNAL_HIT = MTURK_SANDBOX_EXTERNAL_HIT;
         } else {
             MTURK_URL = MTURK_PROD_URL;
             EXTERNAL_HIT = MTURK_PROD_EXTERNAL_HIT;
-        }
-    }
-
-    public static void init() {
-        Library.init();
-        try {
-            copyIfChanged(HTMLSKELETON, ".metadata" + fileSep + "HTMLSkeleton.html");
-            copyIfChanged(JSSKELETON, ".metadata" + fileSep + "JSSkeleton.js");
-            copyIfChanged(QUOTS, ".metadata" + fileSep + "quots");
-            copyIfChanged(XMLSKELETON, ".metadata" + fileSep + "XMLSkeleton.xml");
-            updateURL();
-        } catch (IOException e) {
-            e.printStackTrace();
-            LOGGER.fatal(e.getMessage());
         }
     }
 

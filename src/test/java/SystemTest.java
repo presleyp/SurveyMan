@@ -20,9 +20,8 @@ public class SystemTest extends TestLog {
     public void testHTMLGenerator() throws Exception {
         try{
             for (Tuple2<String, String> test : tests) {
-                CSVLexer.separator = test._2().codePointAt(0);
-                Survey survey = CSVParser.parse(CSVLexer.lex(test._1()));
-                HTML.getHTMLString(survey);
+                CSVParser csvParser = new CSVParser(new CSVLexer(test._1(), test._2()));
+                HTML.getHTMLString(csvParser.parse());
                 LOGGER.info(test._1()+" generated HTML successfully.");
             }
         } catch (SurveyException se) {
@@ -34,9 +33,8 @@ public class SystemTest extends TestLog {
     public void testXMLGenerator() throws Exception {
         try{
             for (Tuple2<String, String> test : tests) {
-                CSVLexer.separator = test._2().codePointAt(0);
-                Survey survey = CSVParser.parse(CSVLexer.lex(test._1()));
-                XML.getXMLString(survey);
+                CSVParser csvParser = new CSVParser(new CSVLexer(test._1(), test._2()));
+                XML.getXMLString(csvParser.parse());
                 LOGGER.info(test._1()+" generated HTML successfully.");
             }
         } catch (SurveyException se) {
@@ -61,5 +59,9 @@ public class SystemTest extends TestLog {
             LOGGER.fatal(se);
         }
         */
+    }
+
+    public void testOptionRandomization() throws Exception {
+
     }
 }

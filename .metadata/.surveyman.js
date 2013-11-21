@@ -44,8 +44,8 @@ var displayQ = function (quid) {
     var text = "";
     var oid = "";
     if (notAlreadyDisplayed(quid)) {
-        var inputType = qTable[quid]["input"];
-        var data = qTable[quid]["data"];
+        var inputType = oTable[quid]["input"];
+        var data = oTable[quid]["data"];
         if (data.length > dropdownThreshold) {
             appendString = appendString
                             + "<select "+ ((inputType==="checkbox")?"multiple ":"")
@@ -85,6 +85,7 @@ var getDropdownOpt = function(quid) {
     return $("#select_"+quid+" option:selected").val().split(";")[0];
 };
 
+
 $(document).ready(function() {
     assignmentId = turkGetParam('assignmentId', "");
 
@@ -107,5 +108,8 @@ $(document).ready(function() {
         $("#preview").hide();
         $(firstQuestion).show();
         displayQ(firstQuestion.id);
+    }
+    if (customInit) {
+        customInit();
     }
 });

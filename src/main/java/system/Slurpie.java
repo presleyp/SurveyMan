@@ -1,6 +1,7 @@
 package system;
 
 import java.io.*;
+import java.net.URL;
 
 /**
  * Slurpie.slurp reads an entire file into a string.
@@ -13,7 +14,12 @@ public class Slurpie {
     }
 
     public static String slurp(String filename, int numChars) throws IOException {
-        BufferedReader br = new BufferedReader(new FileReader(filename));
+        URL resource = Slurpie.class.getClassLoader().getResource(filename);
+        Runner.LOGGER.info(filename + "\turl: " + resource);
+        BufferedReader br;
+        if (resource==null)
+            br = new BufferedReader(new FileReader(filename));
+        else br = new BufferedReader(new InputStreamReader(resource.openStream()));
         StringBuilder s = new StringBuilder();
         char[] buf = new char[1024*1024];
         for (int totalCharsRead = 0 ; totalCharsRead < numChars ; ) {
@@ -24,5 +30,16 @@ public class Slurpie {
             totalCharsRead += buf.length;
         }
         return s.toString();
+    }
+
+    public static String slurp(String filename, boolean ignoreErr) throws IOException{
+        String retval = "";
+        try {
+            retval = slurp(filename);
+        } catch (IOException io) {
+            if (!ignoreErr) throw io;
+        }
+        return retval;
+
     }
 }

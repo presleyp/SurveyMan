@@ -31,3 +31,8 @@ velocity.*
 src/python/approveAll.py
 email_to_self/*
 data/controversy/*
+*.png
+.*/node_modules/.*
+deploy
+src/julia/.juliahistory
+src/julia/.juliahistory
